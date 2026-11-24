@@ -11,10 +11,11 @@ jobs:
     env:
       TEMPORAL_DEBUG: "1"
       UV_FROZEN: "1"
+      OTEL_TRACES_SAMPLER: always_on
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 62210c8bbe82aef7ff9cda951adf61ed622cff45
+          ref: 7c70a2b65b1fab488c5c70e72883599212aacfd1
           fetch-depth: 0
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
@@ -25,17 +26,20 @@ jobs:
         run: uv sync --all-packages --all-extras --no-extra sentence-transformers
       - name: Check modified Python files
         run: |
-          uv run --no-sync ruff check src/pydantic_ai_harness/pydantic_ai_harness/compaction/_compact_on_request.py tests/capability_cases.py tests/harness/capability_cases.py
-          uv run --no-sync ruff format --check src/pydantic_ai_harness/pydantic_ai_harness/compaction/_compact_on_request.py tests/capability_cases.py tests/harness/capability_cases.py
-      - name: Exercise run isolation and Temporal replay
+          uv run --no-sync ruff check src/pydantic_ai_harness/pydantic_ai_harness/compaction/_compact_on_request.py tests/capability_cases.py tests/harness/capability_cases.py src/pydantic_ai_harness/pydantic_ai_harness/compaction/_capability_loads.py tests/harness/compaction/test_capability_loads.py
+          uv run --no-sync ruff format --check src/pydantic_ai_harness/pydantic_ai_harness/compaction/_compact_on_request.py tests/capability_cases.py tests/harness/capability_cases.py src/pydantic_ai_harness/pydantic_ai_harness/compaction/_capability_loads.py tests/harness/compaction/test_capability_loads.py
+      - name: Type-check compaction changes
+        run: uv run --no-sync pyright src/pydantic_ai_harness/pydantic_ai_harness/compaction/_capability_loads.py tests/harness/compaction/test_capability_loads.py
+      - name: Exercise compaction, Temporal replay, and DBOS recovery
         run: |
-          uv run --no-sync pytest -q tests/harness/compaction/test_compact_on_request.py 'tests/harness/test_durable_temporal_replay.py::test_a_case_replays_equal_under_temporal[CompactOnRequest]' --junitxml="$RUNNER_TEMP/compaction.xml"
+          uv run --no-sync pytest -q tests/harness/compaction 'tests/harness/test_durable_temporal_replay.py::test_a_case_replays_equal_under_temporal[CompactOnRequest]' 'tests/harness/test_durable_tool_io.py::test_dbos_recovery_does_not_repeat_tool_requests[CompactOnRequest]' --junitxml="$RUNNER_TEMP/compaction.xml"
           uv run --no-sync python - <<'PY'
           import os
           from pathlib import Path
           from xml.etree import ElementTree
 
           report = ElementTree.parse(Path(os.environ["RUNNER_TEMP"]) / "compaction.xml")
-          case, = [c for c in report.iter("testcase") if "replays_equal_under_temporal" in c.get("name", "")]
-          assert case.find("skipped") is None, "Temporal replay test was skipped"
+          for name in ("replays_equal_under_temporal", "dbos_recovery_does_not_repeat_tool_requests"):
+              case, = [case for case in report.iter("testcase") if name in case.get("name", "")]
+              assert case.find("skipped") is None, f"{name} was skipped"
           PY
