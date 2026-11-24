@@ -881,9 +881,6 @@ DURABLE_TEMPORAL = Contract(
     applies=lambda _, case: case.calls is not None,
     exempt={
         **dict.fromkeys(ID_LESS_TOOLSETS, Exempt(_TOOLSET_WITHOUT_ID)),
-        'CompactOnRequest': Exempt(
-            f'its `for_run` copy builds a new toolset, which Temporal refuses as one added at run time: {_ISSUES}14403'
-        ),
         'Planning': Exempt(
             f'its tools emit plan events, which Temporal cannot deliver from an activity yet: {_ISSUES}7971'
         ),

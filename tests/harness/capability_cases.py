@@ -607,8 +607,10 @@ CASES: dict[str, CapabilityCase] = {
         calls=Calls(
             (('compact_context', {}),),
             lambda _: CompactOnRequest(SlidingWindowCompaction(max_messages=1, keep_messages=2)),
-            # Temporal refuses its per-run toolset (`DURABLE_TEMPORAL` exempts it), so it records nothing there.
-            durable_steps=DurableSteps(dbos=('capability__compact_on_request.compact',)),
+            durable_steps=DurableSteps(
+                dbos=('capability__compact_on_request.compact',),
+                temporal=('toolset__compact_on_request__call_tool', 'capability__compact_on_request__compact'),
+            ),
             moves_cache_prefix=COMPACTION_REWRITES_HISTORY,
         ),
     ),

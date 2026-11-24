@@ -114,6 +114,7 @@ class CompactOnRequest(AbstractCapability[AgentDepsT]):
 
     id: str | None = field(default='compact_on_request', kw_only=True)
 
+    _toolset: AgentToolset[AgentDepsT] | None = field(default=None, init=False, repr=False, compare=False)
     _pending: _Request | None = field(default=None, init=False, repr=False, compare=False)
     _accepted: int = field(default=0, init=False, repr=False, compare=False)
 
@@ -141,12 +142,17 @@ class CompactOnRequest(AbstractCapability[AgentDepsT]):
 
     async def for_run(self, ctx: RunContext[AgentDepsT]) -> CompactOnRequest[AgentDepsT]:
         """Return a copy with no pending request and no accepted requests counted."""
-        return replace(self)
+        clone = replace(self)
+        # Durable execution registers this toolset before it creates any run copies.
+        clone._toolset = self.get_toolset()
+        return clone
 
     def get_toolset(self) -> AgentToolset[AgentDepsT] | None:
         """Register the `compact_context` tool."""
-        tool = Tool(_compact_context, name='compact_context', tool_kind=_COMPACT_CONTEXT_KIND)
-        return FunctionToolset([tool], id=self.id or 'compact_on_request')
+        if self._toolset is None:
+            tool = Tool(_compact_context, name='compact_context', tool_kind=_COMPACT_CONTEXT_KIND)
+            self._toolset = FunctionToolset([tool], id=self.id or 'compact_on_request')
+        return self._toolset
 
     async def after_tool_execute(
         self,
