@@ -11,6 +11,7 @@ from inline_snapshot import snapshot
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.capabilities import AbstractCapability
+from pydantic_ai.durable_exec import DurableRunContext
 from pydantic_ai.messages import (
     CapabilityLoadDeltaPart,
     CompactionPart,
@@ -31,6 +32,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.toolsets import FunctionToolset
+from pydantic_ai.usage import RunUsage
 from pydantic_ai_harness.compaction import (
     ClampOversizedMessages,
     ClearToolResults,
@@ -526,6 +528,26 @@ class TestCapabilityLoadsAcrossCompaction:
                 "request: user 'And in Oslo?'",
             ]
         )
+
+    @pytest.mark.parametrize('deferred', [True, False])
+    async def test_durable_compaction_only_restores_currently_deferred_loads(self, deferred: bool) -> None:
+        history = await _first_turn_history()
+        ctx = RunContext[None](
+            deps=None,
+            model=FunctionModel(_first_turn),
+            usage=RunUsage(),
+            capabilities={'weather': Weather(defer_loading=deferred)},
+        )
+        activity_ctx = DurableRunContext.deserialize_run_context(
+            DurableRunContext.serialize_run_context(ctx), deps=None
+        )
+        strategy = SlidingWindowCompaction[None](max_messages=1, keep_messages=1)
+
+        compacted = await strategy.compact(
+            [*history, ModelRequest(parts=[UserPromptPart('And in Oslo?')])], activity_ctx
+        )
+
+        assert [part.loaded for part in _load_deltas(compacted)] == ([['weather']] if deferred else [])
 
     async def test_compact_now_records_loads_without_a_run(self) -> None:
         history = await _first_turn_history()
