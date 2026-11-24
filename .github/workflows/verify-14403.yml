@@ -1,0 +1,41 @@
+name: Verify compaction replay
+on:
+  push:
+    branches: [verify-14403-temporal]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TEMPORAL_DEBUG: "1"
+      UV_FROZEN: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 62210c8bbe82aef7ff9cda951adf61ed622cff45
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          python-version: "3.12"
+          enable-cache: false
+      - name: Install the project's durable execution test dependencies
+        run: uv sync --all-packages --all-extras --no-extra sentence-transformers
+      - name: Check modified Python files
+        run: |
+          uv run --no-sync ruff check src/pydantic_ai_harness/pydantic_ai_harness/compaction/_compact_on_request.py tests/capability_cases.py tests/harness/capability_cases.py
+          uv run --no-sync ruff format --check src/pydantic_ai_harness/pydantic_ai_harness/compaction/_compact_on_request.py tests/capability_cases.py tests/harness/capability_cases.py
+      - name: Exercise run isolation and Temporal replay
+        run: |
+          uv run --no-sync pytest -q tests/harness/compaction/test_compact_on_request.py 'tests/harness/test_durable_temporal_replay.py::test_a_case_replays_equal_under_temporal[CompactOnRequest]' --junitxml="$RUNNER_TEMP/compaction.xml"
+          uv run --no-sync python - <<'PY'
+          import os
+          from pathlib import Path
+          from xml.etree import ElementTree
+
+          report = ElementTree.parse(Path(os.environ["RUNNER_TEMP"]) / "compaction.xml")
+          case, = [c for c in report.iter("testcase") if "replays_equal_under_temporal" in c.get("name", "")]
+          assert case.find("skipped") is None, "Temporal replay test was skipped"
+          PY
